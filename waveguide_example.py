@@ -18,7 +18,7 @@ from scipy.interpolate import make_interp_spline
 import seaborn as sns
 
 
-
+device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 #%%
 # Total length of the chain: L

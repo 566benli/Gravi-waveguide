@@ -16,9 +16,11 @@ from scipy.integrate import simps
 from scipy.interpolate import interp1d
 from scipy.interpolate import make_interp_spline
 import seaborn as sns
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import RBF, ConstantKernel as C
 
 
-device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
 
 #%%
 # Total length of the chain: L
@@ -36,15 +38,15 @@ def site(n, L):
     ans[n][n] = 1
     return ans
 
-def sigma_up():
-    ans = np.zeros((2,2), dtype = complex)
-    ans[0][1] = 1
-    return ans
+# def sigma_up():
+#     ans = np.zeros((2,2), dtype = complex)
+#     ans[0][1] = 1
+#     return ans
 
-def sigma_down():
-    ans = np.zeros((2,2), dtype = complex)
-    ans[1][0] = 1
-    return ans
+# def sigma_down():
+#     ans = np.zeros((2,2), dtype = complex)
+#     ans[1][0] = 1
+#     return ans
 
 # Consider at most one photonic mode. 
 def A_dag(N):
@@ -177,7 +179,7 @@ def run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
     
     psi_times = []
     rho_times = []
-    dt = 0.5 
+    dt = 0.5
     times = np.arange(0, T, dt)
     
    
@@ -187,8 +189,14 @@ def run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
     ket_ph[N] = 1
     #print(ket_ph)
     ket_e = np.zeros(L+1, dtype = complex)
-    ket_e[0] = 1
+    # Initialize on the z basis.
+    # ket_e[0] = 1
+    
+    # Initialize on the x basis.
+    ket_e[0] = 1/np.sqrt(2)
+    ket_e[1] = 1/np.sqrt(2)
     psi_0 = np.kron(ket_ph, ket_e)
+    
     
     psi_0 = psi_0 / np.linalg.norm(psi_0)
     rho_0 = np.outer(psi_0, np.conj(psi_0))
@@ -209,11 +217,33 @@ def run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
     return psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times
 # psi_t: the final state; psi_0: the initial state; psi_times: the list for the states at each time increment; times: the array for time increments. 
 
-def prob_up(rho, rho_0, N, L):
-    mat = rho @ rho_0
+def prob_z(rho, n, N, L):
+    ket_ph = np.zeros(N+1, dtype = complex)
+    ket_e = np.zeros(L+1, dtype = complex)
+    ket_ph[n] = 1
+    ket_e[0] = 1
+    ket = np.kron(ket_ph, ket_e)
+    proj = np.outer(ket, np.conj(ket))
+    
+    # Projective measurement.
+    mat = proj @ rho @ proj
     prob = np.real(np.trace(mat))
     return prob
-# Notice that the initial density matrix is exactly the projector onto the excited state of the two levle atom!      
+
+def prob_x(rho, n, N, L):
+    ket_ph = np.zeros(N+1, dtype = complex)
+    ket_e = np.zeros(L+1, dtype = complex)
+    ket_ph[n] = 1
+    ket_e[0] = 1/np.sqrt(2)
+    ket_e[1] = 1/np.sqrt(2)
+    ket = np.kron(ket_ph, ket_e)
+    proj = np.outer(ket, np.conj(ket))
+    
+    # Projective measurement.
+    mat = proj @ rho @ proj
+    prob = np.real(np.trace(mat))
+    return prob
+
         
 def fisher_info(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, diff=1e-6):
     psi_t_small, psi_0_small, psi_times_small, times_small, rho_0_small, rho_t_small, rho_times_small = run(T, omega, N, L, dphi - diff, Delta, g0, g, J, A0, delta, Omega)
@@ -243,9 +273,9 @@ def unormalized_posterior_func(a, b, m, M, prob, theta):
     ans = prior_func(theta, a, b) * likelihood_func(m, M, prob)
     return ans
 
-def Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
-    num = 50
-    ite = 50
+def Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, n):
+    num = 20
+    ite = 10
     thetas = np.linspace(a, b, num)
     # Initialize the posterior values. 
     posterior_values = np.zeros(num)
@@ -253,20 +283,21 @@ def Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, 
     prior_values = np.array([prior_func(theta, a, b) for theta in thetas])
     # Generate the conditional probability.
     psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega) # dphi encodes the information of the real parameter!!!
-    prob = prob_up(rho_t, rho_0, N, L)
+    prob = prob_x(rho_t, n, N, L)
     print(f'prob = {prob:.2f}')
     # dphi is the real value. 
     
     for j in range(num):
         theta = thetas[j]
         values = np.zeros(ite)
+        print(f'point num = {j}')
         for i in range(ite):
             print(f'Iteration num = {i}')
             data = generate_data(prob, M)
             m = np.sum(data)
             
             psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, theta, Delta, g0, g, J, A0, delta, Omega) # dphi encodes the information of the real parameter!!!
-            prob_theta = prob_up(rho_t, rho_0, N, L)
+            prob_theta = prob_x(rho_t, n, N, L)
             post_value = unormalized_posterior_func(a, b, m, M, prob_theta, theta)
             values[i] = post_value
             print(f'post_value = {post_value}')
@@ -284,8 +315,8 @@ def Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, 
     return thetas, prior_values, posterior_values
 
 
-def Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega):
-    num = 50
+def Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n):
+    num = 20
     ite = 10
     deltas = np.linspace(a, b, num)
     # Initialize the posterior values.
@@ -297,7 +328,7 @@ def Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, d
     
     # Generate the conditional probability.
     psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega) # delta_real encodes the information of the real parameter!!!
-    prob = prob_up(rho_t, rho_0, N, L)
+    prob = prob_z(rho_t, n, N, L)
     print(f'prob = {prob:.2f}')
     
     
@@ -312,7 +343,7 @@ def Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, d
             m = np.sum(data)
             
             psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega) 
-            prob_delta = prob_up(rho_t, rho_0, N, L)
+            prob_delta = prob_z(rho_t, n, N, L)
             print(f'prob_delta = {prob_delta}')
             con_value = likelihood_func(m, M, prob_delta)
             #c_values[i] = con_value
@@ -341,23 +372,7 @@ def Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, d
     print(f"Integral of the normalized posterior distribution: {integral}")
     return deltas, prior_values, posterior_values
 
-# Iterating over ite samples!
-# def Bayes_estimation(rho, rho_0, theta, N, L, M, ite = 100):
-#     low = 0
-#     high = np.pi
-#     prior_prob = prior_func(theta, low, high)
-#     prob = prob_up(rho, rho_0, N, L)
-#     data = generate_data(prob, M)
-#     m = 0
-#     for i in range(M):
-#         if (data[i] == 1):
-#             m += 1
-#     con_prob = comb(M, m, exact = True) * prob**m * (1 - prob)**(M - m)
-#     post_prob = prior_prob * con_prob
-    
-#     #Normalization
-    
-#     return post_prob
+# Note that dphi is measured onto the x basis, while delta is measured onto the z basis!!!
 
 
 
@@ -390,7 +405,7 @@ J = 1
 delta = 0.5
 Delta = 0 # Chemical potential
 N = 10
-n = 5
+n = 10
 g = 1
 g0 = 0.25
 A0 = 1
@@ -403,8 +418,8 @@ omega = 0.15
 
 
 a = 0
-#b = np.pi
-b = 1
+b = np.pi
+c = 1
 delta_real = 0.5
 M = 50
 
@@ -463,42 +478,15 @@ def plot_state():
     return
 #plot_state()
 
-# def plot_energy_para():
-#     deltas = np.linspace(0,1,20)
-#     gs = np.linspace(0,20,3)
-#     colors = ['r', 'g', 'b']
-#     plt.figure()
-#     plt.xlabel(r'$\delta$')
-#     plt.ylabel('E')
-#     plt.title(r'Energy spectrum with $\delta$')
-#     for k in range(3):
-#         g = gs[k]
-#         c = colors[k]
-#         Es = np.zeros((L,len(deltas)), dtype = complex)
-#         for j in range(len(deltas)):
-#             delta = deltas[j]
-#             H = H_e(n, L, J, delta, Delta, g, N, A0, dphi, Omega, g0)
-#             es, vs, idxs = eigen(H)
-#             for i in range(len(es)):
-#                 Es[i][j] = es[i]
-#         for i in range(len(es)):
-#             plt.scatter(deltas, Es[i,:], color = c, marker = 'o')
-#     plt.show()   
-#     return
-# #plot_energy_para()
 
-
-def plot_ex_prob():
+def plot_prob_z():
     global probs
     gs = np.linspace(0,10,3)
-    #g = 0.1
-    #dphis = [0, np.pi/4, np.pi/3, np.pi/2, np.pi]
-    #labels = ['0', r'$\frac{\pi}{4}$', r'$\frac{\pi}{3}$', r'$\frac{\pi}{2}$', r'$\pi$' ]
-    #dphi = np.pi/8
+  
     plt.figure(figsize = (12,8))
-    plt.title(r'Excited state prob,  $dphi = \frac{\pi}{4}$')
+    plt.title(f'Projection prob onto z,  dphi = {dphi:.2f}')
     plt.xlabel('t')
-    plt.ylabel('P(t)')
+    plt.ylabel('$P_{z}(t)$')
     
     
     for j in range(len(gs)):
@@ -507,7 +495,63 @@ def plot_ex_prob():
         probs = np.zeros(len(times))
         for i in range(len(times)):
             rho = rho_times[i]
-            probs[i] = prob_up(rho, rho_0, N, L)
+            probs[i] = prob_z(rho, n, N, L)
+        plt.plot(times, probs, linestyle = '-', label = f'g = {g:.2f}')
+        
+    
+    plt.legend(loc='center left', bbox_to_anchor = (1, 0.5))
+    plt.tight_layout()
+    plt.show()
+    return
+#plot_prob_z()
+
+def plot_prob_z_vary_dphi():
+    global probs
+    
+    dphis = [0, np.pi/4, np.pi/3, np.pi/2, np.pi]
+    labels = [str(elem) for elem in dphis]
+    plt.figure(figsize = (12,8))
+    plt.title(f'Projection prob onto z,  g = {g}')
+    plt.xlabel('t')
+    plt.ylabel('$P_{z}(t)$')
+    
+    for j in range(len(dphis)):
+        dphi = dphis[j]
+        psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
+        probs = np.zeros(len(times))
+        for i in range(len(times)):
+            rho = rho_times[i]
+            probs[i] = prob_z(rho, n, N, L)
+        plt.plot(times, probs, linestyle = '-', label = labels[j])
+   
+    
+    plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
+    plt.tight_layout()
+    plt.show()
+    return
+#plot_prob_z_vary_dphi()
+
+
+def plot_prob_x():
+    global probs
+    gs = np.linspace(0,10,3)
+    #g = 0.1
+    #dphis = [0, np.pi/4, np.pi/3, np.pi/2, np.pi]
+    #labels = ['0', r'$\frac{\pi}{4}$', r'$\frac{\pi}{3}$', r'$\frac{\pi}{2}$', r'$\pi$' ]
+    #dphi = np.pi/8
+    plt.figure(figsize = (12,8))
+    plt.title(f'Projection prob onto x,  dphi = {dphi:.2f}')
+    plt.xlabel('t')
+    plt.ylabel('$P_{x}(t)$')
+    
+    
+    for j in range(len(gs)):
+        g = gs[j]
+        psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
+        probs = np.zeros(len(times))
+        for i in range(len(times)):
+            rho = rho_times[i]
+            probs[i] = prob_x(rho, n, N, L)
         plt.plot(times, probs, linestyle = '-', label = f'g = {g:.2f}')
         
     
@@ -515,7 +559,36 @@ def plot_ex_prob():
     plt.tight_layout()
     plt.show()
     return
-#plot_ex_prob()
+#plot_prob_x()
+
+
+def plot_prob_x_vary_dphi():
+    global probs
+    
+    dphis = [0, np.pi/4, np.pi/3, np.pi/2, np.pi]
+    labels = [str(elem) for elem in dphis]
+    plt.figure(figsize = (12,8))
+    plt.title(f'Projection prob onto x,  g = {g}')
+    plt.xlabel('t')
+    plt.ylabel('$P_{x}(t)$')
+    
+    for j in range(len(dphis)):
+        dphi = dphis[j]
+        psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
+        probs = np.zeros(len(times))
+        for i in range(len(times)):
+            rho = rho_times[i]
+            probs[i] = prob_x(rho, n, N, L)
+        plt.plot(times, probs, linestyle = '-', label = labels[j])
+   
+    
+    plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
+    plt.tight_layout()
+    plt.show()
+    return
+#plot_prob_x_vary_dphi()
+
+
 
 def plot_density_mat():
     psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
@@ -580,20 +653,38 @@ def plot_fisher():
 #plot_fisher()
 
 def plot_Bayesian():
-    thetas, prior_values, posterior_values = Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
+    thetas, prior_values, posterior_values = Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, n)
     plt.figure()
     plt.title(r'$\Delta\phi$ after Bayes estimation')
     plt.xlabel(r'$\Delta\phi$')
     plt.ylabel(r'$\rho (\Delta\phi)$')
     plt.plot(thetas, prior_values, linestyle = '--', label = 'prior')
-    plt.plot(thetas, posterior_values, linestyle = '-', label = 'post')
+    plt.scatter(thetas, posterior_values, marker = 'o', label = 'post')
+    
+    # Define the kernel: RBF kernel with a constant kernel
+    kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
+
+    # Create GaussianProcessRegressor object
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+
+    # Fit to the provided data
+    gp.fit(thetas[:, np.newaxis], posterior_values)
+
+    # Make predictions on a finer grid
+    theta_fine = np.linspace(a, b, 500)
+    rho_fine, sigma = gp.predict(theta_fine[:, np.newaxis], return_std=True)
+    
+    plt.plot(theta_fine, rho_fine, linestyle = '-', label = 'post fit')
+    
+    
     plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
     plt.show()
     return
-#plot_Bayesian()
+plot_Bayesian()
+
 
 def plot_Bayesian_delta():
-    deltas, prior_values, posterior_values = Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega)
+    deltas, prior_values, posterior_values = Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
     plt.figure()
     plt.title(r'$\delta$ after Bayes estimation')
     plt.xlabel(r'$\delta$')
@@ -603,12 +694,30 @@ def plot_Bayesian_delta():
     #plt.plot(deltas, condition_values, linestyle = '--', label = 'condition')
     
     # Cubic spline interpolation
-    spline_interp = make_interp_spline(deltas, posterior_values, k=3)  # k=3 for cubic spline
-    x_spline = np.linspace(min(deltas), max(deltas), 500)
-    y_spline = spline_interp(x_spline)
-    plt.plot(x_spline, y_spline, linestyle = '-', label = 'post fit')
+    # spline_interp = make_interp_spline(deltas, posterior_values, k=3)  # k=3 for cubic spline
+    # x_spline = np.linspace(min(deltas), max(deltas), 500)
+    # y_spline = spline_interp(x_spline)
+    # plt.plot(x_spline, y_spline, linestyle = '-', label = 'post fit')
+    
+    # Define the kernel: RBF kernel with a constant kernel
+    kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
+
+    # Create GaussianProcessRegressor object
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+
+    # Fit to the provided data
+    gp.fit(deltas[:, np.newaxis], posterior_values)
+
+    # Make predictions on a finer grid
+    delta_fine = np.linspace(a, c, 500)
+    rho_fine, sigma = gp.predict(delta_fine[:, np.newaxis], return_std=True)
+    
+    plt.plot(delta_fine, rho_fine, linestyle = '-', label = 'post fit')
+    
     
     plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
     plt.show()
     return
 plot_Bayesian_delta()
+
+

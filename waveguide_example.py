@@ -418,7 +418,7 @@ omega = 0.15
 
 
 a = 0
-b = np.pi
+b = np.pi/2
 c = 1
 delta_real = 0.5
 M = 50
@@ -680,11 +680,11 @@ def plot_Bayesian():
     plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
     plt.show()
     return
-plot_Bayesian()
+#plot_Bayesian()
 
 
 def plot_Bayesian_delta():
-    deltas, prior_values, posterior_values = Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
+    deltas, prior_values, posterior_values = Bayes_estimation_delta(a, c, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
     plt.figure()
     plt.title(r'$\delta$ after Bayes estimation')
     plt.xlabel(r'$\delta$')
@@ -718,6 +718,58 @@ def plot_Bayesian_delta():
     plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
     plt.show()
     return
-plot_Bayesian_delta()
+#plot_Bayesian_delta()
 
+def plot_Bayesian_vary_T():
+    Ts = [10, 40, 70, 100]
+    plt.figure()
+    plt.title(r'$\Delta\phi$ after Bayes estimation')
+    plt.xlabel(r'$\Delta\phi$')
+    plt.ylabel(r'$\rho (\Delta\phi)$')
+    
+    # Define the kernel: RBF kernel with a constant kernel
+    kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
+    # Create GaussianProcessRegressor object
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+    
+    for T in Ts:
+        thetas, prior_values, posterior_values = Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, n)
+        gp.fit(thetas[:, np.newaxis], posterior_values)
+        theta_fine = np.linspace(a, b, 500)
+        rho_fine, sigma = gp.predict(theta_fine[:, np.newaxis], return_std = True)
+        
+        plt.plot(theta_fine, rho_fine, linestyle = '--', label = f'T = {T}')
+    
+    plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
+    plt.show()
+    return
+plot_Bayesian_vary_T()
+
+
+
+
+def plot_Bayesian_delta_vary_T():
+    Ts = [10, 40, 70, 100]
+    plt.figure()
+    plt.title(r'$\delta$ after Bayes estimation')
+    plt.xlabel(r'$\delta$')
+    plt.ylabel(r'$\rho (\delta)$')
+    
+    # Define the kernel: RBF kernel with a constant kernel
+    kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
+    # Create GaussianProcessRegressor object
+    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
+    
+    for T in Ts:
+        deltas, prior_values, posterior_values = Bayes_estimation_delta(a, c, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
+        gp.fit(deltas[:, np.newaxis], posterior_values)
+        delta_fine = np.linspace(a, c, 500)
+        rho_fine, sigma = gp.predict(delta_fine[:, np.newaxis], return_std=True)
+        
+        plt.plot(delta_fine, rho_fine, linestyle = '--', label = f'T = {T}')
+    
+    plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
+    plt.show()
+    return
+plot_Bayesian_delta_vary_T()
 

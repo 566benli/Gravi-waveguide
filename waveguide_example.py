@@ -38,15 +38,15 @@ def site(n, L):
     ans[n][n] = 1
     return ans
 
-# def sigma_up():
-#     ans = np.zeros((2,2), dtype = complex)
-#     ans[0][1] = 1
-#     return ans
+def sigma_up():
+    ans = np.zeros((2,2), dtype = complex)
+    ans[0][1] = 1
+    return ans
 
-# def sigma_down():
-#     ans = np.zeros((2,2), dtype = complex)
-#     ans[1][0] = 1
-#     return ans
+def sigma_down():
+    ans = np.zeros((2,2), dtype = complex)
+    ans[1][0] = 1
+    return ans
 
 # Consider at most one photonic mode. 
 def A_dag(N):
@@ -175,11 +175,34 @@ def crank_nicolson(psi, dt, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega
     psi_next = solve(A, B @ psi)
     return psi_next
 
+# Direct eigenvector evolution is capable for time independent Hamiltonians~
+def eigen_evolve(psi, dt, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
+    # Compute the time independent Hamiltonian.
+    H = H_t(omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
+    
+    es_new, vs_new, idxs = eigen(H)
+    
+    # Compute the basis vectors (normalized).
+    basis_vectors = [vs_new[:,j]/np.linalg.norm(vs_new[:,j]) for j in range(len(vs_new[0]))]
+    
+    # Compute the corresponding coefficients.
+    coeffs = [np.vdot(basis_vectors[i], psi) for i in range(len(basis_vectors))]
+    
+    # A list for final state.
+    final_list = [coeffs[i] * basis_vectors[i] * np.exp(-1j * es_new[i] * dt)  for i in range(len(basis_vectors))]
+    
+    # Combine into the final vector.
+    psi_evolved = np.sum(final_list, axis = 0)
+    
+    return psi_evolved
+
+
+# Final function for time evolution!
 def run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
     
-    psi_times = []
-    rho_times = []
-    dt = 0.5
+    # psi_times = []
+    # rho_times = []
+    dt = 0.1
     times = np.arange(0, T, dt)
     
    
@@ -200,16 +223,28 @@ def run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega):
     
     psi_0 = psi_0 / np.linalg.norm(psi_0)
     rho_0 = np.outer(psi_0, np.conj(psi_0))
-    #print(np.inner(np.conj(psi_0),psi_0))
+    #print(np.linalg.norm(psi_0))
     
     # Time evolution
-    psi_t = psi_0
+    #psi_t = psi_0
     #print(len(psi_t))
-    for t in times:
-        psi_times.append(psi_t)
-        psi_t = crank_nicolson(psi_t, dt, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
-        rho_t = np.outer(psi_t, np.conj(psi_t))
-        rho_times.append(rho_t)
+    
+    psi_times= [eigen_evolve(psi_0, times[i], omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega) for i in range(len(times))]
+    norms = [np.linalg.norm(psi_times[i]) for i in range(len(times))]
+    print(norms)
+    
+    psi_t = psi_times[-1]
+    
+    rho_times = [np.outer(psi_times[i], np.conj(psi_times[i])) for i in range(len(times))]
+    
+    rho_t = rho_times[-1]
+    
+    
+    # for t in times:
+    #     psi_times.append(psi_t)
+    #     psi_t = crank_nicolson(psi_t, dt, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
+    #     rho_t = np.outer(psi_t, np.conj(psi_t))
+    #     rho_times.append(rho_t)
         #print(np.inner(np.conj(psi_t),psi_t))
     #psi_t now holds the state at time T
     #print("State at time T:", psi_t)
@@ -290,7 +325,7 @@ def Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, 
     for j in range(num):
         theta = thetas[j]
         values = np.zeros(ite)
-        print(f'point num = {j}')
+        print(f'Point num = {j}')
         for i in range(ite):
             print(f'Iteration num = {i}')
             data = generate_data(prob, M)
@@ -418,8 +453,8 @@ omega = 0.15
 
 
 a = 0
-b = np.pi/2
-c = 1
+b = np.pi
+#b = 1
 delta_real = 0.5
 M = 50
 
@@ -492,10 +527,8 @@ def plot_prob_z():
     for j in range(len(gs)):
         g = gs[j]
         psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
-        probs = np.zeros(len(times))
-        for i in range(len(times)):
-            rho = rho_times[i]
-            probs[i] = prob_z(rho, n, N, L)
+        probs = [prob_z(rho_times[i], n, N, L) for i in range(len(times))]
+        
         plt.plot(times, probs, linestyle = '-', label = f'g = {g:.2f}')
         
     
@@ -503,7 +536,7 @@ def plot_prob_z():
     plt.tight_layout()
     plt.show()
     return
-#plot_prob_z()
+plot_prob_z()
 
 def plot_prob_z_vary_dphi():
     global probs
@@ -518,10 +551,8 @@ def plot_prob_z_vary_dphi():
     for j in range(len(dphis)):
         dphi = dphis[j]
         psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
-        probs = np.zeros(len(times))
-        for i in range(len(times)):
-            rho = rho_times[i]
-            probs[i] = prob_z(rho, n, N, L)
+        probs = [prob_z(rho_times[i], n, N, L) for i in range(len(times))]
+        
         plt.plot(times, probs, linestyle = '-', label = labels[j])
    
     
@@ -529,7 +560,7 @@ def plot_prob_z_vary_dphi():
     plt.tight_layout()
     plt.show()
     return
-#plot_prob_z_vary_dphi()
+plot_prob_z_vary_dphi()
 
 
 def plot_prob_x():
@@ -548,10 +579,8 @@ def plot_prob_x():
     for j in range(len(gs)):
         g = gs[j]
         psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
-        probs = np.zeros(len(times))
-        for i in range(len(times)):
-            rho = rho_times[i]
-            probs[i] = prob_x(rho, n, N, L)
+        probs = [prob_x(rho_times[i], n, N, L) for i in range(len(times))]
+        
         plt.plot(times, probs, linestyle = '-', label = f'g = {g:.2f}')
         
     
@@ -559,7 +588,7 @@ def plot_prob_x():
     plt.tight_layout()
     plt.show()
     return
-#plot_prob_x()
+plot_prob_x()
 
 
 def plot_prob_x_vary_dphi():
@@ -575,10 +604,8 @@ def plot_prob_x_vary_dphi():
     for j in range(len(dphis)):
         dphi = dphis[j]
         psi_t, psi_0, psi_times, times, rho_0, rho_t, rho_times = run(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega)
-        probs = np.zeros(len(times))
-        for i in range(len(times)):
-            rho = rho_times[i]
-            probs[i] = prob_x(rho, n, N, L)
+        probs = [prob_x(rho_times[i], n, N, L) for i in range(len(times))]
+        
         plt.plot(times, probs, linestyle = '-', label = labels[j])
    
     
@@ -586,7 +613,7 @@ def plot_prob_x_vary_dphi():
     plt.tight_layout()
     plt.show()
     return
-#plot_prob_x_vary_dphi()
+plot_prob_x_vary_dphi()
 
 
 
@@ -632,10 +659,8 @@ def plot_fisher():
     for j in range(len(dphis)):
         dphi = dphis[j]
         label_now = labels[j]
-        for i in range(len(Ts)):
-            T = Ts[i]
-            F = fisher_info(T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, diff=1e-6)
-            Fs[i] = F
+        Fs = [fisher_info(Ts[i], omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, diff=1e-6) for i in range(len(Ts))]
+        
         ax[0].plot(Ts, Fs, linestyle = '--', label = label_now)
         ax[1].plot(np.log(Ts), np.log(Fs), linestyle = '--', label = label_now)
         
@@ -680,11 +705,11 @@ def plot_Bayesian():
     plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
     plt.show()
     return
-#plot_Bayesian()
+plot_Bayesian()
 
 
 def plot_Bayesian_delta():
-    deltas, prior_values, posterior_values = Bayes_estimation_delta(a, c, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
+    deltas, prior_values, posterior_values = Bayes_estimation_delta(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
     plt.figure()
     plt.title(r'$\delta$ after Bayes estimation')
     plt.xlabel(r'$\delta$')
@@ -709,7 +734,7 @@ def plot_Bayesian_delta():
     gp.fit(deltas[:, np.newaxis], posterior_values)
 
     # Make predictions on a finer grid
-    delta_fine = np.linspace(a, c, 500)
+    delta_fine = np.linspace(a, b, 500)
     rho_fine, sigma = gp.predict(delta_fine[:, np.newaxis], return_std=True)
     
     plt.plot(delta_fine, rho_fine, linestyle = '-', label = 'post fit')
@@ -718,58 +743,6 @@ def plot_Bayesian_delta():
     plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
     plt.show()
     return
-#plot_Bayesian_delta()
+plot_Bayesian_delta()
 
-def plot_Bayesian_vary_T():
-    Ts = [10, 40, 70, 100]
-    plt.figure()
-    plt.title(r'$\Delta\phi$ after Bayes estimation')
-    plt.xlabel(r'$\Delta\phi$')
-    plt.ylabel(r'$\rho (\Delta\phi)$')
-    
-    # Define the kernel: RBF kernel with a constant kernel
-    kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
-    # Create GaussianProcessRegressor object
-    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
-    
-    for T in Ts:
-        thetas, prior_values, posterior_values = Bayes_estimation(a, b, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta, Omega, n)
-        gp.fit(thetas[:, np.newaxis], posterior_values)
-        theta_fine = np.linspace(a, b, 500)
-        rho_fine, sigma = gp.predict(theta_fine[:, np.newaxis], return_std = True)
-        
-        plt.plot(theta_fine, rho_fine, linestyle = '--', label = f'T = {T}')
-    
-    plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
-    plt.show()
-    return
-plot_Bayesian_vary_T()
-
-
-
-
-def plot_Bayesian_delta_vary_T():
-    Ts = [10, 40, 70, 100]
-    plt.figure()
-    plt.title(r'$\delta$ after Bayes estimation')
-    plt.xlabel(r'$\delta$')
-    plt.ylabel(r'$\rho (\delta)$')
-    
-    # Define the kernel: RBF kernel with a constant kernel
-    kernel = C(1.0, (1e-3, 1e3)) * RBF(0.1, (1e-2, 1e2))
-    # Create GaussianProcessRegressor object
-    gp = GaussianProcessRegressor(kernel=kernel, n_restarts_optimizer=10)
-    
-    for T in Ts:
-        deltas, prior_values, posterior_values = Bayes_estimation_delta(a, c, M, T, omega, N, L, dphi, Delta, g0, g, J, A0, delta_real, Omega, n)
-        gp.fit(deltas[:, np.newaxis], posterior_values)
-        delta_fine = np.linspace(a, c, 500)
-        rho_fine, sigma = gp.predict(delta_fine[:, np.newaxis], return_std=True)
-        
-        plt.plot(delta_fine, rho_fine, linestyle = '--', label = f'T = {T}')
-    
-    plt.legend(loc = 'center left', bbox_to_anchor = (1, 0.5))
-    plt.show()
-    return
-plot_Bayesian_delta_vary_T()
 

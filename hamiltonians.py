@@ -4,6 +4,7 @@ import numpy as np
 class Hamiltonian(ABC):
     def __init__(self):
         self.H = None
+        self.psi = None
     def eigen(self):
         es, vs = np.linalg.eig(self.H)
         # We need to implement sorting from small to large values~
@@ -12,7 +13,7 @@ class Hamiltonian(ABC):
         vs_new = vs[:, sorted_indices]
         idxs = np.linspace(1, len(vs[0]), len(vs[0]))
         return es_new, vs_new, idxs
-
+    
 
 
 

@@ -41,5 +41,4 @@ class Hamiltonian(ABC):
     # do the job as the normal run does, utilizing the new eigen_evolve
     def run(self, psi, T):
 
-
     # have a function to calculate partial innter product between two-level atom basis and the state

@@ -6,7 +6,7 @@ class Hamiltonian(ABC):
     def __init__(self):
         self.H = None
         self.eigen = False
-        slef.num_es, self.es, self.vs = None, None, None
+        self.num_es, self.es, self.vs = None, None, None
 
     # Finds all eigenvalues & eigenvectors and sort them
     # self.vs dimension: [vector_dim, num_eigenvalues]

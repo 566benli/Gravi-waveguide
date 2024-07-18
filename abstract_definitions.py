@@ -1,40 +1,48 @@
 from abc import ABC, abstractmethod
 import numpy as np
+import torch
 
 class Hamiltonian(ABC):
     def __init__(self):
         self.H = None
         self.eigen = False
-        self.es, self.vs = None
+        slef.num_es, self.es, self.vs = None, None, None
 
-    # finds all eigenvalues & eigenvectors and sort them
+    # Finds all eigenvalues & eigenvectors and sort them
+    # self.vs dimension: [vector_dim, num_eigenvalues]
     def setup_eigen(self):
         if self.eigen:
             return
         if self.H is None:
             ValueError('Hamiltonian is not defined')
-        es, vs = np.linalg.eig(self.H)
-        # We need to implement sorting from small to large values~
-        sorted_indices = np.argsort(es)
+        es, vs = torch.linalg.eig(self.H)
+        # We need to implement sorting from small to large values~ (add normalization
+        sorted_indices = torch.argsort(es)
         self.es = es[sorted_indices]
         self.vs = vs[:, sorted_indices]
+        self.num_es = len(self.es)
+        # Normalize
+        norm = torch.linalg.norm(self.vs, dim=0)
+        self.vs = (self.vs / norm)
 
     # make this function output the history of state evolution up to time T, in energy eigenbasis
     def eigen_evolve(self, psi, dt):  #make dt T instead:
         if not self.eigen:
             self.setup_eigen()
 
-        # Compute the basis vectors (normalized).
-        basis_vectors = [self.vs[:, j] / np.linalg.norm(self.vs[:, j]) for j in range(len(self.vs[0]))]
-
         # Compute the corresponding coefficients.
-        coeffs = [np.vdot(basis_vectors[i], psi) for i in range(len(basis_vectors))]
+        expanded_psi = psi.unsqueeze(1).expand(-1, self.num_es)
+        coeffs = torch.linalg.vecdot(self.vs, expanded_psi, dim=0)
 
+        # Implement this!
+        psi_evolved = None
+
+        # Delete this
         # A list for final state.
-        final_list = [coeffs[i] * basis_vectors[i] * np.exp(-1j * self.es[i] * dt) for i in range(len(basis_vectors))]
+        #final_list = [coeffs[i] * self.vs[i] * np.exp(-1j * self.es[i] * dt) for i in range(len(self.vs))]
 
         # Combine into the final vector.
-        psi_evolved = np.sum(final_list, axis=0)
+        # psi_evolved = np.sum(final_list, axis=0)
 
         return psi_evolved
 
